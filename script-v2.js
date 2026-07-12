@@ -6,7 +6,8 @@ document.addEventListener('DOMContentLoaded', () => {
   initHeaderScroll();
   initMobileMenu();
   initHeroAnimation();
-  initNosotrosAccordion();
+  initHeroReveal();
+  
   initFaqAccordion();
   initStatsCounter();
   initFlipCards();
@@ -16,6 +17,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initContactForm();
   initCapsulaCarousel();
   initScrollAnim();
+  initProcesoSteps();
 });
 
 /* --------------------------------------------------------------------------
@@ -78,6 +80,37 @@ function initHeroAnimation() {
   });
 }
 
+/* --------------------------------------------------------------------------
+   3b. HERO: Nosotros sube y tapa al Hero al hacer scroll (parallax reveal).
+   -------------------------------------------------------------------------- */
+function initHeroReveal() {
+  const hero = document.getElementById('hero');
+  const nosotros = document.getElementById('nosotros');
+  if (!hero || !nosotros) return;
+
+  const RUNWAY = window.innerHeight * 0.4;
+
+  function update() {
+    const progress = Math.min(Math.max(window.scrollY / RUNWAY, 0), 1);
+    const offset = (1 - progress) * window.innerHeight;
+    nosotros.style.transform = `translateY(${offset}px)`;
+
+    // visibility + opacity en vez de display: no fuerzan un recálculo
+    // de layout, así que no generan el flash blanco al cambiar.
+    if (progress >= 1) {
+      hero.style.visibility = 'hidden';
+      hero.style.opacity = '0';
+    } else {
+      hero.style.visibility = 'visible';
+      hero.style.opacity = '1';
+    }
+  }
+
+  window.addEventListener('scroll', update, { passive: true });
+  window.addEventListener('resize', update);
+  update();
+}
+
 
 /* --------------------------------------------------------------------------
    4. NOSOTROS: acordeón (solo uno abierto a la vez) + imagen que cambia
@@ -85,8 +118,7 @@ function initHeroAnimation() {
    -------------------------------------------------------------------------- */
 function initNosotrosAccordion() {
   const items = document.querySelectorAll('#accordionNosotros .accordion__item');
-  const image = document.getElementById('nosotrosImage');
-  const defaultSrc = image.getAttribute('src'); // imagen por defecto (ninguna card activa)
+   // imagen por defecto (ninguna card activa)
 
   items.forEach((item) => {
     const header = item.querySelector('.accordion__header');
@@ -335,6 +367,7 @@ function initTestimoniosSlider() {
   const cards = Array.from(track.querySelectorAll('.testimonio-card'));
   const total = cards.length;
   let currentIndex = 0;
+  let dots = [];
 
   function visibleCount() {
     return window.innerWidth <= 700 ? 1 : 3;
@@ -344,15 +377,23 @@ function initTestimoniosSlider() {
     return total - visibleCount();
   }
 
-  // --- Dots dinámicos ---
-  cards.forEach((_, i) => {
-    const dot = document.createElement('button');
-    dot.className = 'testimonios__dot';
-    dot.setAttribute('aria-label', `Ir al testimonio ${i + 1}`);
-    dot.addEventListener('click', () => goTo(i));
-    dotsWrap.appendChild(dot);
-  });
-  const dots = Array.from(dotsWrap.children);
+  // --- Dots dinámicos: uno por cada posición ALCANZABLE, no uno por card.
+  // En desktop (3 visibles de 6) hay 4 posiciones posibles (0,1,2,3).
+  // En mobile (1 visible de 6) hay 6 posiciones posibles (0 a 5). ---
+  function buildDots() {
+    dotsWrap.innerHTML = '';
+    const dotCount = maxIndex() + 1;
+
+    for (let i = 0; i < dotCount; i++) {
+      const dot = document.createElement('button');
+      dot.className = 'testimonios__dot';
+      dot.setAttribute('aria-label', `Ir al testimonio ${i + 1}`);
+      dot.addEventListener('click', () => goTo(i));
+      dotsWrap.appendChild(dot);
+    }
+
+    dots = Array.from(dotsWrap.children);
+  }
 
   function goTo(index) {
     currentIndex = Math.max(0, Math.min(index, maxIndex()));
@@ -412,9 +453,20 @@ function initTestimoniosSlider() {
     touchDeltaX = 0;
   });
 
-  // Recalcular al cambiar tamaño de pantalla
-  window.addEventListener('resize', () => goTo(currentIndex));
+  // Recalcular al cambiar tamaño de pantalla (rearma los dots si cambia
+  // la cantidad de posiciones alcanzables, ej. al pasar de mobile a desktop)
+  let lastDotCount = null;
+  window.addEventListener('resize', () => {
+    const newDotCount = maxIndex() + 1;
+    if (newDotCount !== lastDotCount) {
+      buildDots();
+      lastDotCount = newDotCount;
+    }
+    goTo(Math.min(currentIndex, maxIndex()));
+  });
 
+  buildDots();
+  lastDotCount = maxIndex() + 1;
   goTo(0);
 }
 
@@ -488,19 +540,44 @@ function initCapsulaCarousel() {
   const nextBtn = document.getElementById('capsulaNext');
   if (!track) return;
 
-  const AUTO_SPEED = 70; // px por segundo (antes equivalía a ~53px/s con la animación CSS de 40s)
+  const AUTO_SPEED = 70; // px por segundo
   const RESUME_DELAY = 3000; // ms sin tocar las flechas para retomar el auto-scroll
-  const SLIDE_STEP = 428; // ancho de slide (420px) + margin-right (8px)
 
   let offset = 0;
   let halfWidth = 0;
+  let slideStep = 428; // se recalcula en updateMeasurements()
   let isAutoPlaying = true;
   let resumeTimeout = null;
   let lastTime = null;
 
-  function updateHalfWidth() {
+  function updateMeasurements() {
+    // En mobile, fija el ancho de cada slide al ancho real del panel (en px),
+    // para que sea siempre exactamente "una pantalla" sin depender de vw
+    // (que cuenta la scrollbar) ni de % (que no tiene base con este layout).
+    const panel = document.querySelector('.capsula__carousel-panel');
+    const isMobile = window.innerWidth <= 860;
+
+    if (isMobile && panel) {
+      const panelWidth = panel.getBoundingClientRect().width;
+      track.querySelectorAll('.capsula__slide').forEach((slide) => {
+        slide.style.width = panelWidth + 'px';
+      });
+    } else {
+      track.querySelectorAll('.capsula__slide').forEach((slide) => {
+        slide.style.width = ''; // vuelve a los 420px del CSS en desktop
+      });
+    }
+
     // El track tiene el set de imágenes duplicado: la mitad es un loop completo.
     halfWidth = track.scrollWidth / 2;
+
+    // Ancho real del primer slide + su margin-right (se adapta a mobile/desktop)
+    const firstSlide = track.children[0];
+    if (firstSlide) {
+      const rect = firstSlide.getBoundingClientRect();
+      const marginRight = parseFloat(getComputedStyle(firstSlide).marginRight) || 0;
+      slideStep = rect.width + marginRight;
+    }
   }
 
   function applyOffset() {
@@ -537,18 +614,33 @@ function initCapsulaCarousel() {
   }
 
   function goToStep(direction) {
-    pauseAndScheduleResume();
-    offset += direction * SLIDE_STEP;
-    normalizeOffset();
-    applyOffset();
-  }
+  pauseAndScheduleResume();
+
+  // Redondea la posición actual al slide más cercano antes de moverse,
+  // así el punto de partida siempre es una imagen completa (nunca a mitad).
+  offset = Math.round(offset / slideStep) * slideStep;
+
+  offset += direction * slideStep;
+  normalizeOffset();
+  applyOffset();
+}
 
   prevBtn.addEventListener('click', () => goToStep(-1));
   nextBtn.addEventListener('click', () => goToStep(1));
 
-  window.addEventListener('resize', updateHalfWidth);
+// Pausa el auto-scroll mientras el mouse está sobre el carrusel
+track.addEventListener('mouseenter', () => {
+  isAutoPlaying = false;
+});
 
-  updateHalfWidth();
+track.addEventListener('mouseleave', () => {
+  isAutoPlaying = true;
+  lastTime = null;
+});
+
+  window.addEventListener('resize', updateMeasurements);
+
+  updateMeasurements();
   requestAnimationFrame(tick);
 }
 
@@ -572,4 +664,49 @@ function initScrollAnim() {
   sections.forEach((section) => observer.observe(section));
 }
 
+/* --------------------------------------------------------------------------
+   13. anim linea de tiempo
+   -------------------------------------------------------------------------- */
 
+function initProcesoSteps() {
+  const items = document.querySelectorAll('#procesoSteps .proceso-step');
+  const image = document.getElementById('procesoImage');
+  if (!items.length || !image) return;
+
+  const defaultSrc = image.getAttribute('src');
+
+  items.forEach((item) => {
+    const header = item.querySelector('.proceso-step__header');
+    const panel = item.querySelector('.proceso-step__panel');
+
+    header.addEventListener('click', () => {
+      const isActive = item.classList.contains('proceso-step--active');
+
+      items.forEach((otherItem) => {
+        otherItem.classList.remove('proceso-step--active');
+        otherItem.querySelector('.proceso-step__header').setAttribute('aria-expanded', 'false');
+        otherItem.querySelector('.proceso-step__panel').style.maxHeight = null;
+      });
+
+      if (isActive) {
+        swapImage(defaultSrc);
+        return;
+      }
+
+      item.classList.add('proceso-step--active');
+      header.setAttribute('aria-expanded', 'true');
+      panel.style.maxHeight = panel.scrollHeight + 'px';
+
+      swapImage(item.getAttribute('data-image'));
+    });
+  });
+
+  function swapImage(newSrc) {
+    if (!newSrc || image.getAttribute('src') === newSrc) return;
+    image.classList.add('proceso__image--fading');
+    setTimeout(() => {
+      image.setAttribute('src', newSrc);
+      image.classList.remove('proceso__image--fading');
+    }, 350);
+  }
+}
