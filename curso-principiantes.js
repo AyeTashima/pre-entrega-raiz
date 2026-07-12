@@ -47,6 +47,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initHeaderScroll();
   initMobileMenu();
   initFaqAccordion();
+  initContenidosPanels();
 });
 
 /* ── FAQ: acordeón con imagen dinámica (igual que v2) ── */
@@ -93,52 +94,89 @@ function initFaqAccordion() {
   }
 }
 
-// ── TESTIMONIOS: entrada escalonada desde abajo al scrollear ──
+/* ── TESTIMONIOS: cada card entra desde abajo mientras scrolleás, una
+   por tercio del scroll de la sección. Todo atado 1:1 a la rueda del
+   mouse (sin transiciones CSS). Solo desktop. ── */
 (function () {
-  var cards = document.querySelectorAll('.testimonio-card');
-  if (!cards.length) return;
+  const cards = document.querySelectorAll('.testimonio-card');
+  const section = document.querySelector('.curso-testimonios');
+  if (!cards.length || !section) return;
 
-  var isMobile = window.innerWidth <= 768;
+  function isDesktop() {
+    return window.innerWidth >= 769;
+  }
 
-  if (isMobile) return; // en mobile usa scroll nativo
+  const baseTransform = {
+    'testimonio-card--1': { rotate: -4, x: -40 },
+    'testimonio-card--2': { rotate: 3, x: 0 },
+    'testimonio-card--3': { rotate: -2, x: 40 },
+  };
 
-  var prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if (prefersReducedMotion) {
-    cards.forEach(function (card) { card.classList.add('is-visible'); });
+  const ENTRY_DISTANCE = 120; // px que recorre cada card al entrar desde abajo
+
+ function handleScroll() {
+  if (!isDesktop()) {
+    cards.forEach((card) => {
+      card.style.opacity = '';
+      card.style.transform = '';
+    });
     return;
   }
 
-  if (!('IntersectionObserver' in window)) {
-    cards.forEach(function (card) { card.classList.add('is-visible'); });
-    return;
-  }
+  const rect = section.getBoundingClientRect();
+  const scrollableHeight = section.offsetHeight - window.innerHeight;
+  const progress = scrollableHeight > 0
+    ? Math.min(Math.max(-rect.top / scrollableHeight, 0), 1)
+    : 0;
 
-  var observer = new IntersectionObserver(function (entries) {
-    entries.forEach(function (entry) {
-      if (entry.isIntersecting) {
-        entry.target.classList.add('is-visible');
-        observer.unobserve(entry.target);
+  const totalCards = cards.length;
+  const scrollPosition = window.scrollY;
+
+  // Las 3 cards terminan de aparecer dentro del primer 55% del scroll fijado;
+  // el 45% restante queda "en pausa" con todo ya visible, para poder leer.
+  const REVEAL_FRACTION = 0.55;
+
+  cards.forEach((card, index) => {
+    const segmentStart = (index / totalCards) * REVEAL_FRACTION;
+    const segmentSize = REVEAL_FRACTION / totalCards;
+    const localProgress = Math.min(Math.max((progress - segmentStart) / segmentSize, 0), 1);
+
+    const modifierClass = Array.from(card.classList).find((c) => baseTransform[c]);
+    const base = baseTransform[modifierClass] || { rotate: 0, x: 0 };
+
+    const speed = (index + 1) * 0.05;
+    const rotationModifier = index % 2 === 0 ? -1 : 1;
+    const extraRotation = (scrollPosition * 0.01 * rotationModifier) + (index * 2);
+    const extraY = scrollPosition * speed * 0.1;
+
+    const entryOffset = (1 - localProgress) * ENTRY_DISTANCE;
+
+    card.style.opacity = String(localProgress);
+    card.style.transform =
+      `rotate(${base.rotate + extraRotation * 0.2}deg) translateX(${base.x}px) translateY(${entryOffset + extraY}px)`;
+  });
+}
+
+  handleScroll();
+  window.addEventListener('scroll', handleScroll, { passive: true });
+  window.addEventListener('resize', handleScroll);
+})();
+
+// 5 cards desplegables
+
+function initContenidosPanels() {
+  const panels = document.querySelectorAll('#contenidosPanels [data-panel]');
+  if (!panels.length) return;
+
+  panels.forEach((panel) => {
+    panel.addEventListener('click', () => {
+      const isActive = panel.classList.contains('is-active');
+
+      panels.forEach((p) => p.classList.remove('is-active'));
+
+      if (!isActive) {
+        panel.classList.add('is-active');
       }
     });
-  }, {
-    threshold: 0.15,
-    rootMargin: '0px 0px -40px 0px'
   });
-
-  cards.forEach(function (card) {
-    observer.observe(card);
-  });
-})();
-
-
-// ── CONTENIDOS: flip cards al tocar ──
-(function () {
-  var cards = document.querySelectorAll('.flip-card');
-  if (!cards.length) return;
-
-  cards.forEach(function (card) {
-    card.addEventListener('click', function () {
-      card.classList.toggle('is-flipped');
-    });
-  });
-})();
+}
